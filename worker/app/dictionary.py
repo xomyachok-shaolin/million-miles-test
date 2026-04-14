@@ -85,6 +85,9 @@ TRANSMISSIONS: dict[str, tuple[str, str]] = {
 
 FUELS: dict[str, tuple[str, str]] = {
     "ガソリン": ("Gasoline", "Бензин"),
+    "ハイオク": ("Gasoline (Premium)", "Бензин АИ-98"),
+    "レギュラー": ("Gasoline (Regular)", "Бензин АИ-92"),
+    "プレミアム": ("Gasoline (Premium)", "Бензин АИ-98"),
     "ハイブリッド": ("Hybrid", "Гибрид"),
     "ハイブリッド(ガソリン)": ("Hybrid", "Гибрид"),
     "ディーゼル": ("Diesel", "Дизель"),
@@ -94,6 +97,8 @@ FUELS: dict[str, tuple[str, str]] = {
     "プラグインハイブリッド": ("PHEV", "Плагин-гибрид"),
     "LPG": ("LPG", "Газ"),
     "水素": ("Hydrogen", "Водород"),
+    "天然ガス": ("CNG", "Природный газ"),
+    "CNG": ("CNG", "Природный газ"),
 }
 
 DRIVES: dict[str, str] = {
@@ -169,4 +174,9 @@ def translate_drive(v: str | None) -> str | None:
     v = _norm(v)
     if not v:
         return None
+    # CarSensor пишет "前輪駆動(FF)" — берём только код в скобках
+    import re as _re
+    m = _re.search(r"\((\w+)\)", v)
+    if m:
+        return DRIVES.get(m.group(1), m.group(1))
     return DRIVES.get(v, v)
