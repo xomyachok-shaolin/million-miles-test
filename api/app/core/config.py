@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     POSTGRES_HOST: str = "postgres"
     POSTGRES_PORT: int = 5432
 
+    REDIS_HOST: str = "redis"
+    REDIS_PORT: int = 6379
+
     JWT_SECRET: str = "dev-secret-change-me"
     JWT_ALG: str = "HS256"
     JWT_EXPIRES_MIN: int = 60

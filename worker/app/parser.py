@@ -124,25 +124,29 @@ def parse_detail_html(url: str, html: str) -> CarRaw | None:
         if t:
             bc_items.append(t)
 
+    seen_names: set[str] = set()
     for item in bc_items:
         if item.endswith("の中古車"):
             name = item[:-4].strip()
+            if name in seen_names:
+                continue
+            seen_names.add(name)
             if not car.make_ja:
                 car.make_ja = name
             elif not car.model_ja:
                 car.model_ja = name
                 break
 
-    # H1: marque / grade / trim
+    # H1: full grade string
     h1 = soup.select_one(".titleCar h1, .detailMain h1, h1")
     if h1:
         car.grade = _clean(h1.get_text(" ", strip=True))
-        if not car.make_ja:
-            parts = (car.grade or "").split()
-            if parts:
-                car.make_ja = parts[0]
-                if len(parts) > 1 and not car.model_ja:
-                    car.model_ja = parts[1]
+
+    # Fallback для make из H1 если breadcrumb пуст
+    if not car.make_ja and car.grade:
+        parts = car.grade.split()
+        if parts:
+            car.make_ja = parts[0]
 
     # Prices
     base = soup.select_one(".basePrice__price, [class*=basePrice__price]")
@@ -219,7 +223,15 @@ def parse_detail_html(url: str, html: str) -> CarRaw | None:
 
 
 def normalize(raw: CarRaw) -> dict:
-    make_en, make_ja = translate_make(raw.make_ja)
+    # Склейка разделённых марок (например, "アルファ ロメオ" → "アルファロメオ")
+    make_ja_raw = raw.make_ja
+    if make_ja_raw and " " in make_ja_raw:
+        glued = make_ja_raw.replace(" ", "").replace("\u3000", "")
+        from app.dictionary import MAKES
+        if glued in MAKES:
+            make_ja_raw = glued
+
+    make_en, make_ja = translate_make(make_ja_raw)
     body_en, body_ja = translate_body(raw.body_type_ja)
     tr_en, tr_ja = translate_transmission(raw.transmission_ja)
     fuel_en, fuel_ja = translate_fuel(raw.fuel_ja)

@@ -4,21 +4,10 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { fetchCar } from "@/lib/api";
+import { fetchCar, fetchRates } from "@/lib/api";
 import { useAuth } from "@/store/auth";
-
-function fmtPrice(v: number | null | undefined) {
-  if (v == null) return "—";
-  if (v >= 10_000_000) return `¥${(v / 10_000_000).toFixed(1)}千万`;
-  if (v >= 10_000) return `¥${(v / 10_000).toFixed(0)}万`;
-  return `¥${v.toLocaleString("ja-JP")}`;
-}
-
-function fmtMileage(km: number | null | undefined) {
-  if (km == null) return null;
-  if (km >= 10_000) return `${(km / 10_000).toFixed(1)}万km`;
-  return `${km.toLocaleString()} km`;
-}
+import Sparkline from "@/components/Sparkline";
+import { fmtJpy as fmtPrice, fmtMileage, fmtRubFull } from "@/lib/format";
 
 export default function CarPage() {
   const { id } = useParams<{ id: string }>();
@@ -34,6 +23,12 @@ export default function CarPage() {
     queryKey: ["car", id],
     queryFn: () => fetchCar(token!, Number(id)),
     enabled: !!token && !!id,
+  });
+
+  const { data: rates } = useQuery({
+    queryKey: ["rates"],
+    queryFn: fetchRates,
+    staleTime: 60 * 60_000,
   });
 
   if (isLoading)
@@ -108,11 +103,21 @@ export default function CarPage() {
               <div>
                 <div className="text-xs uppercase tracking-wide text-slate-400">Цена</div>
                 <div className="mt-0.5 text-3xl font-bold text-slate-900">{fmtPrice(data.price_jpy)}</div>
+                {fmtRubFull(data.price_jpy, rates?.JPY_to_RUB) && (
+                  <div className="mt-0.5 text-xs font-medium text-slate-500">
+                    {fmtRubFull(data.price_jpy, rates?.JPY_to_RUB)}
+                  </div>
+                )}
               </div>
               {data.price_total_jpy && (
                 <div className="text-right">
                   <div className="text-xs uppercase tracking-wide text-slate-400">С налогами</div>
                   <div className="mt-0.5 text-base font-semibold text-slate-700">{fmtPrice(data.price_total_jpy)}</div>
+                  {fmtRubFull(data.price_total_jpy, rates?.JPY_to_RUB) && (
+                    <div className="mt-0.5 text-[11px] text-slate-400">
+                      {fmtRubFull(data.price_total_jpy, rates?.JPY_to_RUB)}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -160,9 +165,15 @@ export default function CarPage() {
 
       {data.price_history.length > 1 && (
         <div className="mt-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h3 className="text-sm font-semibold text-slate-900">История цены</h3>
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-slate-900">История цены</h3>
+            <span className="text-xs text-slate-400">{data.price_history.length} точек</span>
+          </div>
+          <div className="mt-3">
+            <Sparkline data={data.price_history} height={100} />
+          </div>
           <div className="mt-3 space-y-1 text-sm">
-            {data.price_history.map((p) => (
+            {data.price_history.slice(0, 8).map((p) => (
               <div key={p.observed_at} className="flex justify-between border-b border-slate-100 py-1.5 last:border-0">
                 <span className="text-slate-500">
                   {new Date(p.observed_at).toLocaleDateString("ru-RU", { year: "numeric", month: "short", day: "numeric" })}

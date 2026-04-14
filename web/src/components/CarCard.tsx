@@ -1,24 +1,24 @@
+"use client";
+
 import Link from "next/link";
+import { useQuery } from "@tanstack/react-query";
 import type { CarListItem } from "@/lib/api";
-
-function fmtPrice(v: number | null) {
-  if (v == null) return "—";
-  if (v >= 10_000_000) return `¥${(v / 10_000_000).toFixed(1)}千万`;
-  if (v >= 10_000) return `¥${(v / 10_000).toFixed(0)}万`;
-  return `¥${v.toLocaleString("ja-JP")}`;
-}
-
-function fmtMileage(km: number | null) {
-  if (km == null) return null;
-  if (km >= 10_000) return `${(km / 10_000).toFixed(1)}万km`;
-  return `${km.toLocaleString()} km`;
-}
+import { fetchRates } from "@/lib/api";
+import { fmtJpy, fmtMileage, fmtRub, isNew } from "@/lib/format";
 
 export default function CarCard({ car }: { car: CarListItem }) {
+  const { data: rates } = useQuery({
+    queryKey: ["rates"],
+    queryFn: fetchRates,
+    staleTime: 60 * 60_000,
+  });
+  const rub = fmtRub(car.price_jpy, rates?.JPY_to_RUB);
+  const fresh = isNew(car.updated_at);
+
   return (
     <Link
       href={`/cars/${car.id}`}
-      className="group overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-lg"
+      className="group relative overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-lg"
     >
       <div className="relative aspect-[16/10] overflow-hidden bg-slate-100">
         {car.primary_image ? (
@@ -36,11 +36,18 @@ export default function CarCard({ car }: { car: CarListItem }) {
             </svg>
           </div>
         )}
-        {car.body_type && (
-          <span className="absolute left-2 top-2 rounded-md bg-white/95 px-2 py-0.5 text-[11px] font-medium text-slate-700 backdrop-blur">
-            {car.body_type}
-          </span>
-        )}
+        <div className="absolute left-2 top-2 flex flex-col items-start gap-1">
+          {fresh && (
+            <span className="rounded-md bg-emerald-500 px-2 py-0.5 text-[11px] font-semibold text-white shadow-sm">
+              NEW
+            </span>
+          )}
+          {car.body_type && (
+            <span className="rounded-md bg-white/95 px-2 py-0.5 text-[11px] font-medium text-slate-700 backdrop-blur">
+              {car.body_type}
+            </span>
+          )}
+        </div>
       </div>
 
       <div className="p-4">
@@ -54,7 +61,8 @@ export default function CarCard({ car }: { car: CarListItem }) {
             </div>
           </div>
           <div className="shrink-0 text-right">
-            <div className="text-lg font-bold text-slate-900">{fmtPrice(car.price_jpy)}</div>
+            <div className="text-lg font-bold text-slate-900">{fmtJpy(car.price_jpy)}</div>
+            {rub && <div className="text-[11px] font-medium text-slate-500">{rub}</div>}
           </div>
         </div>
 

@@ -91,3 +91,33 @@ export async function fetchFilters(token: string): Promise<Filters> {
   if (!r.ok) throw new Error("Failed to load filters");
   return r.json();
 }
+
+export type Rates = {
+  JPY_to_RUB: number;
+  USD_to_RUB: number;
+  EUR_to_RUB: number;
+  timestamp: number;
+};
+
+export async function fetchRates(): Promise<Rates> {
+  const r = await fetch(`${API_URL}/rates`);
+  if (!r.ok) throw new Error("Failed to load rates");
+  return r.json();
+}
+
+export type Stats = {
+  total: number;
+  makes_count: number;
+  avg_price_jpy: number | null;
+  min_price_jpy: number | null;
+  max_price_jpy: number | null;
+  new_24h: number;
+  last_updated_at: string | null;
+  top_makes: { make: string; count: number }[];
+};
+
+export async function fetchStats(token: string): Promise<Stats> {
+  const r = await fetch(`${API_URL}/stats`, { headers: authHeaders(token) });
+  if (!r.ok) throw new Error("Failed to load stats");
+  return r.json();
+}

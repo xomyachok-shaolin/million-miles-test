@@ -7,6 +7,7 @@ import { fetchCars, fetchFilters } from "@/lib/api";
 import { useAuth } from "@/store/auth";
 import CarCard from "@/components/CarCard";
 import FiltersPanel, { EMPTY_FILTERS, type FiltersState } from "@/components/Filters";
+import StatsBar from "@/components/StatsBar";
 
 export default function CarsPage() {
   const { token } = useAuth();
@@ -60,6 +61,10 @@ export default function CarsPage() {
         <p className="mt-1 text-sm text-slate-500">
           Данные обновляются автоматически раз в час из CarSensor.net
         </p>
+      </div>
+
+      <div className="mb-5">
+        <StatsBar />
       </div>
 
       <div className="mb-6">
