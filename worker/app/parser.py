@@ -1,4 +1,5 @@
 """Парсер CarSensor: листинг → детальные карточки → нормализованные dict для upsert."""
+import asyncio
 import logging
 import re
 from dataclasses import dataclass, field
@@ -52,10 +53,17 @@ class CarRaw:
 _num_re = re.compile(r"[\d,\.]+")
 
 
+def _clean(s: str | None) -> str | None:
+    if s is None:
+        return None
+    s = re.sub(r"\s+", " ", s.replace("\u3000", " ")).strip()
+    return s or None
+
+
 def _to_int(s: str | None) -> int | None:
     if not s:
         return None
-    m = _num_re.search(s.replace(",", ""))
+    m = _num_re.search(s.replace(",", "").replace(" ", ""))
     if not m:
         return None
     try:
@@ -65,29 +73,30 @@ def _to_int(s: str | None) -> int | None:
 
 
 def _price_to_jpy(s: str | None) -> int | None:
-    """CarSensor отображает цены в 万円 (10 000 иен). '248.9万円' → 2 489 000."""
+    """'121 .2 万円' → 1_212_000, '135.9万円' → 1_359_000."""
     if not s:
         return None
-    m = re.search(r"([\d,\.]+)\s*万", s)
+    compact = s.replace(" ", "").replace(",", "")
+    m = re.search(r"([\d\.]+)\s*万", compact)
     if m:
         try:
-            return int(float(m.group(1).replace(",", "")) * 10_000)
+            return int(float(m.group(1)) * 10_000)
         except ValueError:
             return None
     return _to_int(s)
 
 
 def _mileage_to_km(s: str | None) -> int | None:
-    """'4.5万km' → 45000, '55,000km' → 55000"""
     if not s:
         return None
-    m = re.search(r"([\d,\.]+)\s*万\s*km", s)
+    compact = s.replace(" ", "").replace(",", "")
+    m = re.search(r"([\d\.]+)\s*万\s*km", compact)
     if m:
         try:
-            return int(float(m.group(1).replace(",", "")) * 10_000)
+            return int(float(m.group(1)) * 10_000)
         except ValueError:
             pass
-    m = re.search(r"([\d,\.]+)\s*km", s)
+    m = re.search(r"([\d\.]+)\s*km", compact)
     if m:
         return _to_int(m.group(1))
     return _to_int(s)
@@ -104,28 +113,58 @@ def parse_detail_html(url: str, html: str) -> CarRaw | None:
     soup = BeautifulSoup(html, "lxml")
 
     m = re.search(r"/detail/([A-Z0-9]+)/", url)
-    source_id = m.group(1) if m else url
+    if not m:
+        return None
+    car = CarRaw(source_id=m.group(1), url=url)
 
-    car = CarRaw(source_id=source_id, url=url)
+    # Make / Model из breadcrumb
+    bc_items: list[str] = []
+    for bc in soup.select(".breadcrumb a, .breadcrumb li, nav[aria-label*=bread] a"):
+        t = _clean(bc.get_text(" ", strip=True))
+        if t:
+            bc_items.append(t)
 
-    h = soup.select_one("h1, .titleArea__main, .detailMaker")
-    if h:
-        text = h.get_text(" ", strip=True)
-        parts = text.split()
-        if parts:
-            car.make_ja = parts[0]
-            if len(parts) > 1:
-                car.model_ja = parts[1]
-        car.grade = text
+    for item in bc_items:
+        if item.endswith("の中古車"):
+            name = item[:-4].strip()
+            if not car.make_ja:
+                car.make_ja = name
+            elif not car.model_ja:
+                car.model_ja = name
+                break
 
+    # H1: marque / grade / trim
+    h1 = soup.select_one(".titleCar h1, .detailMain h1, h1")
+    if h1:
+        car.grade = _clean(h1.get_text(" ", strip=True))
+        if not car.make_ja:
+            parts = (car.grade or "").split()
+            if parts:
+                car.make_ja = parts[0]
+                if len(parts) > 1 and not car.model_ja:
+                    car.model_ja = parts[1]
+
+    # Prices
+    base = soup.select_one(".basePrice__price, [class*=basePrice__price]")
+    total = soup.select_one(".totalPrice__price, [class*=totalPrice__price]")
+    if base:
+        car.price_jpy = _price_to_jpy(base.get_text(" ", strip=True))
+    if total:
+        car.price_total_jpy = _price_to_jpy(total.get_text(" ", strip=True))
+    if not car.price_jpy:
+        any_price = soup.find(string=re.compile(r"\d+\s*\.?\s*\d*\s*万円"))
+        if any_price:
+            car.price_jpy = _price_to_jpy(str(any_price))
+
+    # Specs из всех таблиц
     specs: dict[str, str] = {}
     for row in soup.select("table tr"):
         ths = row.select("th")
         tds = row.select("td")
         for th, td in zip(ths, tds):
-            k = th.get_text(" ", strip=True)
-            v = td.get_text(" ", strip=True)
-            if k and v:
+            k = _clean(th.get_text(" ", strip=True))
+            v = _clean(td.get_text(" ", strip=True))
+            if k and v and k not in specs:
                 specs[k] = v
 
     def pick(*keys: str) -> str | None:
@@ -137,8 +176,6 @@ def parse_detail_html(url: str, html: str) -> CarRaw | None:
 
     car.year = _year_to_int(pick("年式"))
     car.mileage_km = _mileage_to_km(pick("走行距離"))
-    car.price_jpy = _price_to_jpy(pick("本体価格"))
-    car.price_total_jpy = _price_to_jpy(pick("支払総額"))
     car.body_type_ja = pick("ボディタイプ", "ボディ")
     car.transmission_ja = pick("ミッション", "シフト")
     car.fuel_ja = pick("燃料")
@@ -149,20 +186,31 @@ def parse_detail_html(url: str, html: str) -> CarRaw | None:
     car.inspection_until = pick("車検")
     repaired = pick("修復歴")
     if repaired:
-        car.repaired = "あり" in repaired
+        car.repaired = ("あり" in repaired) or ("有" in repaired)
 
-    dealer = soup.select_one(".shopName, .shop__name, [class*=shop]")
-    if dealer:
-        car.dealer = dealer.get_text(" ", strip=True)[:255]
+    # Dealer
+    for sel in [".shopName", ".shop__name", "[class*=shopName]", "[class*=dealer]"]:
+        el = soup.select_one(sel)
+        if el:
+            car.dealer = _clean(el.get_text(" ", strip=True))[:255] if el else None
+            if car.dealer:
+                break
 
+    # Images (любой carsensor.net)
+    seen = set()
     for img in soup.select("img[src]"):
         src = img.get("src") or ""
-        if ("ccsrpcml" in src or "carsensor" in src) and src.startswith("http"):
-            full = urljoin(url, src)
-            if full not in car.images:
-                car.images.append(full)
-            if len(car.images) >= 10:
-                break
+        if "carsensor.net" not in src or not src.startswith("http"):
+            continue
+        if "_S." in src or "_S.J" in src or src.endswith("_S.JPG"):
+            continue
+        full = urljoin(url, src.split("?")[0])
+        if full in seen:
+            continue
+        seen.add(full)
+        car.images.append(full)
+        if len(car.images) >= 10:
+            break
 
     if car.images:
         car.primary_image = car.images[0]
@@ -220,13 +268,16 @@ async def _extract_detail_urls(context: BrowserContext, list_url: str) -> list[s
 
     soup = BeautifulSoup(html, "lxml")
     urls: list[str] = []
+    seen = set()
     for a in soup.select("a[href*='/usedcar/detail/']"):
         href = a.get("href")
         if not href:
             continue
         full = urljoin(list_url, href.split("?")[0])
-        if "/usedcar/detail/" in full and full not in urls:
-            urls.append(full)
+        if "/usedcar/detail/" not in full or full in seen:
+            continue
+        seen.add(full)
+        urls.append(full)
     return urls
 
 
@@ -234,14 +285,33 @@ async def _fetch_detail(context: BrowserContext, url: str) -> CarRaw | None:
     page = await context.new_page()
     try:
         await page.goto(url, wait_until="domcontentloaded", timeout=45_000)
-        await page.wait_for_timeout(1000)
+        await page.wait_for_timeout(800)
         html = await page.content()
-        return parse_detail_html(url, html)
+        raw = parse_detail_html(url, html)
+        if raw:
+            log.info(
+                "parsed %s: %s %s / %s / ¥%s",
+                raw.source_id,
+                raw.make_ja,
+                raw.model_ja,
+                raw.year,
+                raw.price_jpy,
+            )
+        return raw
     except Exception as e:
-        log.warning("fetch_detail %s: %s", url, e)
+        log.warning("fetch_detail %s failed: %s", url, e)
         return None
     finally:
         await page.close()
+
+
+def _paginated(list_url: str, page_num: int) -> str:
+    """CarSensor использует /index{N}.html для пагинации."""
+    if page_num <= 1:
+        return list_url
+    if "/index.html" in list_url:
+        return list_url.replace("/index.html", f"/index{page_num}.html")
+    return f"{list_url}?index={30 * (page_num - 1)}"
 
 
 async def scrape(list_url: str, max_pages: int, concurrency: int) -> list[dict]:
@@ -253,19 +323,21 @@ async def scrape(list_url: str, max_pages: int, concurrency: int) -> list[dict]:
         )
         try:
             detail_urls: list[str] = []
+            seen: set[str] = set()
             for page_num in range(1, max_pages + 1):
-                url = list_url if page_num == 1 else f"{list_url}?page={page_num}"
+                url = _paginated(list_url, page_num)
                 urls = await _extract_detail_urls(context, url)
-                log.info("listing page=%d urls=%d", page_num, len(urls))
-                if not urls:
+                added = 0
+                for u in urls:
+                    if u not in seen:
+                        seen.add(u)
+                        detail_urls.append(u)
+                        added += 1
+                log.info("listing page=%d found=%d new=%d", page_num, len(urls), added)
+                if added == 0:
                     break
-                detail_urls.extend(urls)
 
-            seen = set()
-            unique_urls = [u for u in detail_urls if not (u in seen or seen.add(u))]
-            log.info("total unique detail urls: %d", len(unique_urls))
-
-            import asyncio
+            log.info("total unique detail urls: %d", len(detail_urls))
 
             sem = asyncio.Semaphore(concurrency)
 
@@ -275,7 +347,7 @@ async def scrape(list_url: str, max_pages: int, concurrency: int) -> list[dict]:
                     if raw:
                         results.append(normalize(raw))
 
-            await asyncio.gather(*(worker(u) for u in unique_urls))
+            await asyncio.gather(*(worker(u) for u in detail_urls))
         finally:
             await context.close()
             await browser.close()

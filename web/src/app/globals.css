@@ -2,6 +2,21 @@
 @tailwind components;
 @tailwind utilities;
 
-:root { color-scheme: light dark; }
-html, body { height: 100%; }
-body { @apply bg-neutral-50 text-neutral-900; }
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+
+:root { color-scheme: light; }
+
+html, body {
+  height: 100%;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+body {
+  @apply bg-gradient-to-br from-slate-50 via-white to-slate-100 text-slate-900 antialiased;
+}
+
+/* scrollbar */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #d4d4d8; border-radius: 999px; border: 2px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background: #a1a1aa; background-clip: content-box; border: 2px solid transparent; }
