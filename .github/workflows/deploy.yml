@@ -47,6 +47,9 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
     steps:
       - uses: actions/checkout@v4
 
@@ -65,14 +68,17 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
+          envs: GHCR_TOKEN,IMAGE_TAG,GHCR_OWNER
           script: |
             set -e
             cd /opt/mm
-            if [ -n "${{ secrets.GHCR_TOKEN }}" ]; then
-              echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ secrets.GHCR_OWNER }} --password-stdin
-            fi
-            export GHCR_OWNER=${{ secrets.GHCR_OWNER }}
-            export IMAGE_TAG=${{ github.sha }}
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            export GHCR_OWNER=$GHCR_OWNER
+            export IMAGE_TAG=$IMAGE_TAG
             docker compose -f docker-compose.prod.yml pull
             docker compose -f docker-compose.prod.yml up -d --remove-orphans
             docker image prune -f
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE_TAG: ${{ github.sha }}
+          GHCR_OWNER: ${{ secrets.GHCR_OWNER }}
