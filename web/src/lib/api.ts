@@ -74,3 +74,20 @@ export async function fetchCar(token: string, id: number): Promise<CarDetail> {
   if (!r.ok) throw new Error("Failed to load car");
   return r.json();
 }
+
+export type Filters = {
+  makes: string[];
+  body_types: string[];
+  transmissions: string[];
+  fuels: string[];
+  drives: string[];
+  year: { min: number | null; max: number | null };
+  price: { min: number | null; max: number | null };
+  mileage: { min: number | null; max: number | null };
+};
+
+export async function fetchFilters(token: string): Promise<Filters> {
+  const r = await fetch(`${API_URL}/cars/filters`, { headers: authHeaders(token) });
+  if (!r.ok) throw new Error("Failed to load filters");
+  return r.json();
+}
