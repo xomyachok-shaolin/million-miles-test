@@ -68,7 +68,9 @@ jobs:
           script: |
             set -e
             cd /opt/mm
-            echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ secrets.GHCR_USER }} --password-stdin
+            if [ -n "${{ secrets.GHCR_TOKEN }}" ]; then
+              echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ secrets.GHCR_OWNER }} --password-stdin
+            fi
             export GHCR_OWNER=${{ secrets.GHCR_OWNER }}
             export IMAGE_TAG=${{ github.sha }}
             docker compose -f docker-compose.prod.yml pull
